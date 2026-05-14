@@ -1,4 +1,4 @@
-# verified-ggml
+# F-star-ggml-library
 
 **Formally verified replacements for critical GGML tensor kernels**, proved memory-safe and functionally correct using the [F\* / Pulse / KaRaMeL](https://fstar-lang.org) toolchain.
 
@@ -42,10 +42,11 @@ The proofs are written in [F\*](https://fstar-lang.org) using the [Pulse](https:
 ## Repository layout
 
 ```
-verified-ggml/
+F-star-ggml-library/
 │
 ├── README.md
 ├── .gitignore
+├── LICENSE
 ├── Makefile                         # verify → extract → test
 │
 ├── GGML.Types.fsti                  # F* interface: tensor struct + safety predicates
@@ -73,13 +74,21 @@ You do **not** need F\*, KaRaMeL, or Z3 to use the verified kernels. The extract
 - `make`
 - (Optional but recommended) AddressSanitizer support in your compiler
 
-### 1. Clone and compile the test suite
+### 1. Clone the repository
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/verified-ggml.git
-cd verified-ggml
+git clone https://github.com/MFarhaanmath/F-star-ggml-library.git
+cd F-star-ggml-library
+```
 
-gcc -O2 -Wall -Wextra -fsanitize=address,undefined \
+### 2. Compile and run the test suite
+
+**Linux / macOS (GCC):**
+
+```bash
+gcc -O2 -Wall -Wextra \
+    -D_ISOC11_SOURCE \
+    -fsanitize=address,undefined \
     -Iextraction \
     tests/test_verified_ggml.c \
     extraction/ggml-verified-kernels.c \
@@ -88,7 +97,35 @@ gcc -O2 -Wall -Wextra -fsanitize=address,undefined \
 ./tests/test_runner
 ```
 
-Expected output (truncated):
+**Linux / macOS (Clang):**
+
+```bash
+clang -O2 -Wall -Wextra \
+    -fsanitize=address,undefined \
+    -Iextraction \
+    tests/test_verified_ggml.c \
+    extraction/ggml-verified-kernels.c \
+    -lm -o tests/test_runner
+
+./tests/test_runner
+```
+
+**Windows (MSYS2 / Git Bash):**
+
+```bash
+gcc -O2 -Wall -Wextra \
+    -D_ISOC11_SOURCE \
+    -Iextraction \
+    tests/test_verified_ggml.c \
+    extraction/ggml-verified-kernels.c \
+    -lm -o tests/test_runner.exe
+
+./tests/test_runner.exe
+```
+
+> Note: `-fsanitize=address,undefined` requires a sanitizer-capable toolchain. On Windows with MSYS2 you can omit it and rely on Valgrind or the test logic itself.
+
+Expected output:
 
 ```
 TAP version 14
@@ -105,19 +142,21 @@ ok 50 - add_no_oob_write: sentinel bytes past buffer untouched
 # All 50 tests passed.
 ```
 
-### 2. Use the kernels in your own code
+Exit code 0 = all tests passed.
+
+### 3. Use the kernels in your own code
 
 ```c
 #include "extraction/ggml_verified.h"
 
-// Element-wise add: dst[i] = a[i] + b[i]  for i < n
+// Element-wise add: dst[i] = a[i] + b[i]  for all i < n
 GGML_Impl_verified_add(
     (uint8_t *)dst_f32_ptr,
     (uint8_t *)src0_f32_ptr,
     (uint8_t *)src1_f32_ptr,
     (uint64_t)n_elements);
 
-// Check that a tensor has a contiguous layout before passing it to a verified kernel
+// Check contiguous layout before calling a verified kernel
 bool ok = GGML_Impl_verified_contiguous_check(
     GGML_Types_F32,
     ne[0], ne[1], ne[2], ne[3],
@@ -166,7 +205,7 @@ Phase 2 · KaRaMeL C Extraction
   → produces extraction/ggml-verified-kernels.c
 
 Phase 3 · C Test Harness
-  gcc -fsanitize=address,undefined tests/test_verified_ggml.c ...
+  gcc -D_ISOC11_SOURCE -fsanitize=address,undefined tests/test_verified_ggml.c ...
   → compiles and runs all 50 tests
 ```
 
@@ -184,7 +223,7 @@ make clean     # Remove all generated files
 
 ## Running the test suite
 
-The test harness in `tests/test_verified_ggml.c` uses [TAP](https://testanything.org/) (Test Anything Protocol) output, which is consumed by standard CI tools.
+The test harness in `tests/test_verified_ggml.c` uses [TAP](https://testanything.org/) (Test Anything Protocol) output, compatible with standard CI tools.
 
 ### Four layers of testing
 
@@ -198,7 +237,7 @@ The test harness in `tests/test_verified_ggml.c` uses [TAP](https://testanything
 ### With ASan + UBSan (recommended)
 
 ```bash
-gcc -O2 -fsanitize=address,undefined \
+gcc -O2 -D_ISOC11_SOURCE -fsanitize=address,undefined \
     -Iextraction \
     tests/test_verified_ggml.c \
     extraction/ggml-verified-kernels.c \
@@ -208,10 +247,11 @@ gcc -O2 -fsanitize=address,undefined \
 echo "Exit code: $?"   # 0 = all pass
 ```
 
-### With valgrind (alternative)
+### With Valgrind (alternative, no ASan conflict)
 
 ```bash
-gcc -O0 -g -Iextraction \
+gcc -O0 -g \
+    -Iextraction \
     tests/test_verified_ggml.c \
     extraction/ggml-verified-kernels.c \
     -lm -o tests/test_runner
@@ -219,26 +259,17 @@ gcc -O0 -g -Iextraction \
 valgrind --error-exitcode=1 --leak-check=full ./tests/test_runner
 ```
 
-### In CI (GitHub Actions example)
+### In CI (GitHub Actions)
 
-```yaml
-# .github/workflows/test.yml
-name: verified-ggml tests
-on: [push, pull_request]
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Build and test
-        run: |
-          gcc -O2 -fsanitize=address,undefined \
-              -Iextraction \
-              tests/test_verified_ggml.c \
-              extraction/ggml-verified-kernels.c \
-              -lm -o tests/test_runner
-          ./tests/test_runner
-```
+The repo ships a working workflow at `.github/workflows/test.yml` that runs three jobs automatically on every push:
+
+| Job | Compiler | Notes |
+|---|---|---|
+| C tests (GCC + ASan/UBSan) | GCC | Uses `-D_ISOC11_SOURCE` |
+| C tests (Clang + ASan/UBSan) | Clang | |
+| Valgrind memcheck | GCC (debug build) | No ASan (incompatible with Valgrind) |
+
+To add it to your own fork just push — Actions picks up `.github/workflows/test.yml` automatically.
 
 ---
 
@@ -247,11 +278,11 @@ jobs:
 ### Step 1: Copy the two files
 
 ```bash
-cp extraction/ggml_verified.h   /path/to/llama.cpp/ggml/include/
+cp extraction/ggml_verified.h         /path/to/llama.cpp/ggml/include/
 cp extraction/ggml-verified-kernels.c /path/to/llama.cpp/ggml/src/
 ```
 
-Add `ggml-verified-kernels.c` to your build system (CMake example):
+Add `ggml-verified-kernels.c` to your build (CMake example):
 
 ```cmake
 target_sources(ggml PRIVATE src/ggml-verified-kernels.c)
@@ -272,7 +303,7 @@ static void ggml_compute_forward_add_f32(
     const struct ggml_tensor * src0 = dst->src[0];
     const struct ggml_tensor * src1 = dst->src[1];
 
-    // Use verified kernel when both inputs and output are contiguous F32
+    // Use verified kernel when tensors are contiguous F32 with equal shape
     if (GGML_Impl_verified_contiguous_check(
             GGML_Types_F32,
             src0->ne[0], src0->ne[1], src0->ne[2], src0->ne[3],
@@ -296,7 +327,7 @@ static void ggml_compute_forward_add_f32(
 
 ### Step 3: Verify the swap works
 
-Run the existing ggml / llama.cpp test suite — behaviour should be identical. Then run this project's test suite against your build to double-check the integration.
+Run the existing ggml / llama.cpp test suite — behaviour should be identical. Then run this repo's test suite against your build to double-check the integration.
 
 ---
 
@@ -310,9 +341,7 @@ For any contiguous F32 tensor with element count `n` and byte buffer `buf` of si
 ∀ i ∈ [0, n).  byte_offset(i) + 4 ≤ length(buf)
 ```
 
-where `byte_offset(i) = i * 4` (for contiguous layout). This rules out **every** possible out-of-bounds read or write in the loop body.
-
-The proof is not empirical — Z3 verifies it holds for **all** possible values of `n`, not just the ones tested.
+where `byte_offset(i) = i * 4`. This rules out **every** possible out-of-bounds read or write in the loop body. The proof is not empirical — Z3 verifies it holds for **all** possible values of `n`.
 
 ### No aliasing
 
@@ -332,9 +361,9 @@ Combined with the disjointness precondition (`dst ≠ src0 ≠ src1`), this rule
 
 The post-condition is expressed as refinement over the pure spec `add_spec` in `GGML.Spec.fst`, and the loop invariant tracks that the written prefix always matches it.
 
-### Termination (verified_contiguous_check)
+### Termination
 
-`GGML_Impl_verified_contiguous_check` is proved **total** by F\* — it always terminates, performs no division, no heap allocation, and contains no undefined behaviour regardless of inputs.
+`GGML_Impl_verified_contiguous_check` is proved **total** by F\* — always terminates, no division, no heap allocation, no undefined behaviour regardless of inputs.
 
 ---
 
@@ -390,19 +419,19 @@ To add verification for a new ggml kernel (e.g. `ggml_compute_forward_mul_f32`):
    ```fstar
    fn verified_mul (m: tensor_meta{...}) (dst src0 src1: B.buffer UInt8.t)
      requires ...
-     ensures  ... reads_as_float_seq h1 dst n == mul_spec ... ...
+     ensures  ... reads_as_float_seq h1 dst n == mul_spec ...
    { ... }
    ```
 
 3. **Update the loop invariant** to track the written prefix against `mul_spec`.
 
-4. **Run `make verify`**. If F\* reports `"Could not prove bounds"`, add the explicit instantiation:
+4. **Run `make verify`**. If F\* reports `"Could not prove bounds"`, add:
    ```fstar
    byte_offset_in_bounds m i0 i1 i2 i3;
    ```
-   before the offending read or write.
+   immediately before the offending read or write.
 
-5. **Export the symbol** by adding it to `extraction/ggml_verified.h` and a stub to `extraction/ggml-verified-kernels.c` for testing before KaRaMeL extraction.
+5. **Export the symbol** by adding it to `extraction/ggml_verified.h` and a stub to `extraction/ggml-verified-kernels.c`.
 
 6. **Add tests** to `tests/test_verified_ggml.c` following the same four-layer pattern.
 
@@ -411,29 +440,35 @@ To add verification for a new ggml kernel (e.g. `ggml_compute_forward_mul_f32`):
 ## Troubleshooting
 
 ### `fstar.exe: command not found`
-Make sure `$FSTAR_HOME/bin` is on your `PATH`. If you built F\* from source, the binary is at `bin/fstar.exe` relative to the repo root.
+Make sure `$FSTAR_HOME/bin` is on your `PATH`.
+
+### `E: Unable to locate package libm-dev` (CI / Ubuntu)
+`libm` is bundled with GCC on modern Ubuntu — do not install `libm-dev`. The correct install step is:
+```bash
+sudo apt-get install -y gcc
+```
 
 ### `Could not prove: byte_offset … + 4 <= length buf`
-The loop invariant is too weak. Add an explicit call to `byte_offset_in_bounds` immediately before the failing `read_f32_at` or `write_f32_at`, passing the current loop index. See `GGML.Impl.fst` for the pattern.
+Add an explicit `byte_offset_in_bounds` call before the failing statement. See `GGML.Impl.fst` for the pattern.
 
 ### `Z3 timeout` on a particular query
-Run `make hints` first to record cached SMT answers. If a specific query still times out, increase the rlimit in the F\* invocation:
+Run `make hints` first to cache SMT answers. If it still times out:
 ```bash
 fstar.exe --z3rlimit 200 ...
 ```
 
-### Tests fail with ASan `invalid-aligned-alloc-alignment`
-Your libc requires `aligned_alloc` sizes to be multiples of the alignment. The test harness rounds up automatically — make sure you are using the version from this repo, not an older copy.
+### GCC: `aligned_alloc` fails or behaves unexpectedly
+Add `-D_ISOC11_SOURCE` to your compile command (already included in the recommended commands above and in the CI workflow).
 
 ### `GGML_Impl_verified_contiguous_check` returns false unexpectedly
-Print the actual strides and compare with the expected contiguous layout:
+The tensor has non-standard strides. Print and compare:
 ```
-nb[0] should be 4           (sizeof float)
-nb[1] should be 4 * ne[0]
-nb[2] should be 4 * ne[0] * ne[1]
-nb[3] should be 4 * ne[0] * ne[1] * ne[2]
+nb[0] should equal 4
+nb[1] should equal 4 * ne[0]
+nb[2] should equal 4 * ne[0] * ne[1]
+nb[3] should equal 4 * ne[0] * ne[1] * ne[2]
 ```
-Any deviation means the tensor was transposed or created with custom strides. Use the fallback kernel in that case.
+Any deviation means the tensor is transposed or uses custom strides. Use the original ggml fallback kernel for that case.
 
 ---
 
