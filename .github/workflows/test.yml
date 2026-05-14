@@ -20,12 +20,12 @@ jobs:
       - name: Compile test harness
         run: |
           gcc -O2 -Wall -Wextra \
+              -D_ISOC11_SOURCE \
               -fsanitize=address,undefined \
               -Iextraction \
               tests/test_verified_ggml.c \
               extraction/ggml-verified-kernels.c \
               -lm -o tests/test_runner
-
       - name: Run tests
         run: |
           ./tests/test_runner
