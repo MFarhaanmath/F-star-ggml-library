@@ -1,0 +1,78 @@
+name: verified-ggml CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  # ── Job 1: C-only test suite (no F* toolchain needed) ─────────────────────
+  c-tests:
+    name: C tests (GCC + ASan/UBSan)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: sudo apt-get install -y gcc libm-dev
+
+      - name: Compile test harness
+        run: |
+          gcc -O2 -Wall -Wextra \
+              -fsanitize=address,undefined \
+              -Iextraction \
+              tests/test_verified_ggml.c \
+              extraction/ggml-verified-kernels.c \
+              -lm -o tests/test_runner
+
+      - name: Run tests
+        run: |
+          ./tests/test_runner
+          echo "Exit: $?"
+
+  # ── Job 2: C tests with Clang ─────────────────────────────────────────────
+  c-tests-clang:
+    name: C tests (Clang + ASan/UBSan)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install clang
+        run: sudo apt-get install -y clang
+
+      - name: Compile and run
+        run: |
+          clang -O2 -Wall -Wextra \
+                -fsanitize=address,undefined \
+                -Iextraction \
+                tests/test_verified_ggml.c \
+                extraction/ggml-verified-kernels.c \
+                -lm -o tests/test_runner
+          ./tests/test_runner
+
+  # ── Job 3: Valgrind memory check ──────────────────────────────────────────
+  valgrind:
+    name: Valgrind memcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install deps
+        run: sudo apt-get install -y gcc valgrind
+
+      - name: Build (debug, no ASan – conflicts with valgrind)
+        run: |
+          gcc -O0 -g \
+              -Iextraction \
+              tests/test_verified_ggml.c \
+              extraction/ggml-verified-kernels.c \
+              -lm -o tests/test_runner
+
+      - name: Valgrind run
+        run: |
+          valgrind \
+            --error-exitcode=1 \
+            --leak-check=full \
+            --track-origins=yes \
+            ./tests/test_runner
