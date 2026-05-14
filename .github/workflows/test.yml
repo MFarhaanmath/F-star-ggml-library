@@ -15,7 +15,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install dependencies
-        run: sudo apt-get install -y gcc libm-dev
+        run: sudo apt-get install -y gcc
 
       - name: Compile test harness
         run: |
